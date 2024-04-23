@@ -1,0 +1,199 @@
+Private Sub Customer_Export_Click()
+    ' Step 1: Declare variables
+    Dim sourceArray As Variant
+    Dim DestArray As Variant
+    Dim NextFindRange As Range
+    Dim ContractNumber As Variant
+    Dim MatchIndex As Variant
+
+    ' Step 2: Initialize arrays
+    sourceArray = Array("A", "B", "C", "D", "E", "I", "H", "L", "K") ' Assuming columns in Bhatt Doc Workflow
+    DestArray = Array("A", "B", "C", "D", "E", "F", "H", "I", "K") ' Corresponding columns in IGT Doc Workflow
+
+    ' Ensure both arrays are of the same size
+    If UBound(sourceArray) <> UBound(DestArray) Then
+        MsgBox "Source and Target arrays must be of the same size."
+        Exit Sub
+    End If
+
+    ' Step 3: Get customer selection
+    Dim Customer As Variant
+    Customer = CustomerName ' Assuming CustomerName is the name of the dropdown control
+    Customer = Trim(Customer)
+
+    ' Step 4: Store Customer Column in a Range Object
+    Dim CustomerRange As Range
+    Set CustomerRange = Sheet1.Columns("K") ' Assuming Customer column is in column K
+
+    ' Step 5: Find the first occurrence of the customer variable
+    Dim FindRange As Range
+    Dim StartRow As Long
+    Set FindRange = CustomerRange.Find(What:=Customer, LookIn:=xlValues)
+    If Not FindRange Is Nothing Then
+        StartRow = FindRange.Row
+    Else
+        MsgBox "Customer not found."
+        Exit Sub
+    End If
+
+    ' Step 6: Open the IGT Doc Workflow workbook
+    Dim IGTDocWorkbook As Workbook
+    Dim targetFilePath As String
+    targetFilePath = "C:\Users\mohit.khosla\Desktop\IGT Doc Workflow.xlsm"
+    
+    For Each wb In Workbooks
+        If wb.Name = "IGT Doc Workflow.xlsm" Then
+            Set IGTDocWorkbook = wb
+            Exit For
+        End If
+    Next wb
+    
+    If IGTDocWorkbook Is Nothing Then
+        Set IGTDocWorkbook = Workbooks.Open(targetFilePath)
+    End If
+    
+    ' Step 7: Check if the worksheet exists in the IGT Doc Workflow workbook
+    Dim wsTarget As Worksheet
+    On Error Resume Next
+    Set wsTarget = IGTDocWorkbook.Worksheets("Sheet2")
+    On Error GoTo 0
+    
+    If wsTarget Is Nothing Then
+        MsgBox "Worksheet 'Sheet2' not found in IGT Doc Workflow workbook."
+        IGTDocWorkbook.Close SaveChanges:=False
+        Exit Sub
+    End If
+    
+    ' Step 8: Parse data and overwrite in IGT Doc Workflow
+    Dim i As Integer
+    Dim bhattSheet As Worksheet
+    Dim bhattLastRow As Long
+    
+    ' Update workbook reference if "Bhatt Doc Workflow" is in a different workbook
+    Dim bhattWorkbook As Workbook
+    Set bhattWorkbook = Workbooks("Bhatt Doc Workflow (1).xlsm") ' Update workbook name as needed
+
+    If bhattWorkbook Is Nothing Then
+        MsgBox "Workbook 'Bhatt Doc Workflow' not found."
+        Exit Sub
+    End If
+    
+    Set bhattSheet = bhattWorkbook.Sheets("New Material Details") ' Update sheet name as needed
+    If bhattSheet Is Nothing Then
+        MsgBox "Worksheet 'New Material Details' not found in 'Bhatt Doc Workflow (1).xlsm' workbook."
+        Exit Sub
+    End If
+    
+    bhattLastRow = bhattSheet.Cells(bhattSheet.Rows.Count, "A").End(xlUp).Row
+
+    ' Loop through each row in Bhatt Doc Workflow
+    For rowIdx = StartRow To bhattLastRow
+        ' Check if the current row matches the customer
+        If bhattSheet.Cells(rowIdx, "K").value = Customer Then
+            ' Loop through each column to copy data from Bhatt to IGT Doc Workflow
+            For i = LBound(sourceArray) To UBound(sourceArray)
+                wsTarget.Cells(StartRow, DestArray(i)).value = bhattSheet.Cells(rowIdx, sourceArray(i)).value
+            Next i
+            ' Move to the next row in IGT Doc Workflow
+            StartRow = StartRow + 1
+        End If
+    Next rowIdx
+    
+    ' Step 9: Start a separate while loop that iterates until a Find Next method returns us to the original row variable
+    Dim CurrentFindRange As Range
+    Set CurrentFindRange = FindRange
+
+    Do
+        Set NextFindRange = CustomerRange.FindNext(CurrentFindRange)
+        If Not NextFindRange Is Nothing And NextFindRange.Row <> FindRange.Row Then
+            For i = LBound(sourceArray) To UBound(sourceArray)
+                wsTarget.Cells(StartRow, DestArray(i)).value = bhattSheet.Cells(NextFindRange.Row, sourceArray(i)).value
+            Next i
+            StartRow = StartRow + 1
+            Set CurrentFindRange = NextFindRange
+        Else
+            Exit Do
+        End If
+    Loop
+
+    ' Step 10: Remove contracts no longer assigned to the company
+    Dim Contract As Range
+    Dim LastIGTRow As Long
+    Dim ArrivedDateColumn As Long
+    Dim MinDate As Date
+    Dim ContractArrivedDate As Date
+
+    LastIGTRow = wsTarget.Cells(wsTarget.Rows.Count, "A").End(xlUp).Row
+    
+    ' Find the column index of the "Arrived" column
+    ArrivedDateColumn = 22 ' Column V
+    
+    ' Set the minimum date for comparison (for example, contracts newer than this date will be included)
+    MinDate = Date - 30 ' Adjust the number of days as needed
+
+    ' Loop through contracts
+    For Each Contract In wsTarget.Range("V2:V" & LastIGTRow)
+        If Contract.Offset(0, ArrivedDateColumn - 1).value <> "Arrived" Then ' Check if contract has not arrived
+            ' Check if contract is newer than the minimum date
+            ContractArrivedDate = Contract.Offset(0, ArrivedDateColumn - 1).value
+            If ContractArrivedDate > MinDate Then
+                ContractNumber = Contract.value
+                ' Open the "Doc Workflow" workbook (assuming it's closed initially)
+                Dim DocWorkflowWorkbook As Workbook
+                Dim docWorkflowFilePath As String
+                docWorkflowFilePath = "C:\Path\To\Doc Workflow.xlsx" ' Update with the correct file path
+
+                ' Check if the workbook is already open
+                For Each wb In Workbooks
+                    If wb.Name = "Doc Workflow.xlsx" Then
+                        Set DocWorkflowWorkbook = wb
+                        Exit For
+                    End If
+                Next wb
+
+                If DocWorkflowWorkbook Is Nothing Then
+                    ' Open the workbook if it's not already open
+                    Set DocWorkflowWorkbook = Workbooks.Open(docWorkflowFilePath)
+                End If
+
+                ' Check if the worksheet exists in the "Doc Workflow" workbook
+                Dim wsDocWorkflow As Worksheet
+                On Error Resume Next
+                Set wsDocWorkflow = DocWorkflowWorkbook.Worksheets("Sheet1") ' Update with the correct sheet name
+                On Error GoTo 0
+
+                If wsDocWorkflow Is Nothing Then
+                    MsgBox "Worksheet 'Sheet1' not found in 'Doc Workflow' workbook."
+                    DocWorkflowWorkbook.Close SaveChanges:=False
+                    Exit Sub
+                End If
+
+                ' Using Index-Match to check contract assignment
+                Dim ContractAssigned As Boolean
+
+                ' Use Index-Match to check if the contract number is still assigned to the company in "Doc Workflow"
+                MatchIndex = Application.WorksheetFunction.Match(ContractNumber, wsDocWorkflow.Columns("A"), 0)
+                If Not IsError(MatchIndex) Then
+                    ' Contract is still assigned to the company in "Doc Workflow"
+                    ContractAssigned = True
+                Else
+                    ' Contract is not assigned to the company in "Doc Workflow", delete it from IGT Doc Workflow
+                    Contract.EntireRow.Delete
+                End If
+
+                ' Close the "Doc Workflow" workbook
+                DocWorkflowWorkbook.Close SaveChanges:=False
+            End If
+        End If
+    Next Contract
+
+    ' Step 11: Close the dropdown and display completion message
+    Unload Me
+
+    ' Step 12: Close the IGT Doc Workflow workbook and save changes
+    IGTDocWorkbook.Close SaveChanges:=True ' Save changes made to IGT Doc Workflow workbook
+
+    ' Step 13: Display completion message
+    MsgBox "Export process completed."
+End Sub
+
